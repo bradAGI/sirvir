@@ -46,7 +46,6 @@ distribution_owned:
   - AGENTS.md
   - config.yaml
   - distribution.yaml
-  - profile.png
   - skills/sirvir-bench/
   - skills/sirvir-research/
   - skills/sirvir-scale/
