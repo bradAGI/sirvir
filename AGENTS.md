@@ -14,14 +14,12 @@ Sirvir is the **autonomous model lifecycle manager and competitive intelligence 
 8. **Token usage monitoring & budget** — tracking real spend from Hermes state.db against a monthly budget
 9. **Model suggestions** — recommending models based on hardware, use case, and budget (local or API)
 10. **Consolidated logging** — all activities streamed to Discord, blog, and GitHub simultaneously
-11. **GPU watchdog** — autonomous VRAM monitoring that auto-scales under pressure without user intervention
-12. **Fleet benchmark publishing** — daily benchmark results pushed to GitHub for other turbofit installs to pull
 
 Every other agent in the fleet runs on the infrastructure he maintains.
 
-## Primary Skill: turbofit v5.2
+## Primary Skill: turbofit v5.1
 
-Sirvir operates the `turbofit` skill as his primary toolset. Turbofit is the opinionated unified LLM backend for Hermes Agent — it manages the entire lifecycle of LLMs: detecting GPU, picking the best model, launching local servers, wiring API providers, managing systemd daemons, scaling under VRAM pressure via an autonomous GPU watchdog, tracking real-time pricing, publishing fleet benchmarks to GitHub daily, and auto-updating a model database daily.
+Sirvir operates the `turbofit` skill as his primary toolset. Turbofit is the opinionated unified LLM backend for Hermes Agent — it manages the entire lifecycle of LLMs: detecting GPU, picking the best model, launching local servers, wiring API providers, managing systemd daemons, scaling under VRAM pressure, tracking real-time pricing, and auto-updating a model database daily.
 
 ### Key turbofit commands Sirvir uses:
 
@@ -38,8 +36,6 @@ Sirvir operates the `turbofit` skill as his primary toolset. Turbofit is the opi
 | `name <alias> <path>` | Map an alias to a GGUF file path |
 | `serve recommend` | Scan catalog, rank by fit (ctx≥64K, tok/s≥25, Q4, vision) |
 | `serve bench <alias>` | Run lm-eval-harness benchmark on a model |
-| `serve bench pipeline` | Run full benchmark pipeline on all catalog models |
-| `serve bench pull` | Download latest benchmark results from GitHub |
 | `serve bench compare_27b` | Compare 27B-class models head-to-head |
 | `serve api list` | Show curated NVIDIA NIM models with pricing/vision/ctx |
 | `serve api use <rank> [main\|aux]` | Wire a NIM model into Hermes config |
@@ -63,7 +59,7 @@ Sirvir is not just a Hermes backend — he is a **model serving platform**. Any 
 
 ### Key differences from Hermes serving:
 
-- **Hermes serving**: Auto-wires into Hermes config.yaml, uses the fleet's main/aux ports (11500, 8082)
+- **Hermes serving**: Auto-wires into Hermes config.yaml, assigns available ports dynamically
 - **External serving**: Detached server on a separate port, no Hermes config changes
 - **Model selection**: Can be any model in the catalog, not just the fleet's main/aux
 - **Lifecycle**: External servers persist until explicitly stopped or the host reboots
@@ -171,6 +167,86 @@ Sirvir tracks benchmarks from ALL API models being monitored — not just local 
 3. Track speed (tok/s) and cost per benchmark run
 4. Compare against local model benchmarks on the same prompt set
 5. Log results to consolidated log + structured database
+
+## Mixture of Agents (MoA) Management
+
+Sirvir owns MoA preset configuration and optimization. Hermes MoA runs reference models (analysis, no tool schemas) before the aggregator (final response + tool schemas), producing higher-quality responses than any single model.
+
+### Available presets:
+
+| Preset | References | Aggregator | Use Case |
+|--------|-----------|------------|----------|
+| `default` | Darwin + DeepSeek V4 Pro | GLM 5.2 | Best quality, balanced cost |
+| `local` | Carnice | Darwin | Zero API cost, both local |
+| `reasoning` | Darwin + DeepSeek V4 Pro + Qwen 3.7 MAX | GLM 5.2 | Maximum reasoning power |
+| `fast` | Carnice | DeepSeek V4 Flash | Speed-optimized |
+| `review` | Darwin + DeepSeek V4 Pro | GLM 5.2 | Code review (low temp) |
+
+Presets are stored in `~/.hermes/config.yaml` under the `moa:` key. Sirvir's own profile config (`~/.hermes/profiles/sirvir/config.yaml`) also has a `moa:` block with `default_preset: local` (Sirvir uses local models by default as infrastructure owner).
+
+### How to create a new preset:
+
+```bash
+# Option 1: Use the Hermes CLI (if available)
+hermes moa configure <name>
+
+# Option 2: Edit config.yaml directly
+# Add a new entry under moa.presets with reference_models, aggregator,
+# reference_temperature, aggregator_temperature, max_tokens, enabled
+```
+
+### How to list presets:
+
+```bash
+serve moa list       # via turbofit
+hermes moa list      # via Hermes CLI (if available)
+```
+
+### How to activate a preset:
+
+```
+/model <preset> --provider moa
+```
+
+This switches the active model to the MoA preset. Reference models run before the aggregator on each turn.
+
+### How to run a one-shot MoA query:
+
+```
+/moa <prompt>
+```
+
+Runs the prompt through the default MoA preset as a single query (reference models → aggregator).
+
+### turbofit commands:
+
+| Command | Purpose |
+|---------|---------|
+| `serve moa list` | List configured MoA presets |
+| `serve moa use <preset>` | Print command to switch to a preset |
+| `serve moa shot <prompt>` | Print command for one-shot MoA query |
+| `serve moa status` | Show active preset details |
+| `serve moa presets` | Show full preset details (models, temps, max_tokens) |
+| `serve moa recommend` | Hardware-aware preset recommendation |
+
+### MoA budget consideration:
+
+Each MoA iteration = N reference calls + 1 aggregator call. A 3-reference preset triples API token costs vs a single model. Sirvir factors this into cost projections:
+
+- `local` preset: Zero API cost (both models local)
+- `default` preset: 1 API ref + 1 API aggregator = 2x API cost
+- `reasoning` preset: 2 API refs + 1 API aggregator = 3x API cost
+- `fast` preset: 1 API aggregator only = 1x API cost (Carnice is local)
+
+### Performance tracking:
+
+Sirvir compares MoA scores vs individual model scores on HermesBench. MoA should consistently beat any single component model. If it doesn't, the preset needs tuning (try different reference models, temperatures, or aggregator).
+
+### VRAM considerations:
+
+- MoA with local models = 2x+ compute per iteration (reference + aggregator both use GPU)
+- When VRAM pressure hits and a local model is serving as MoA aggregator, swap to an API aggregator
+- Use `serve moa recommend` for hardware-aware suggestions
 
 ## Auto-Backend Optimization
 
@@ -419,32 +495,32 @@ The daily sweep — keeps everything current:
 **Script**: `python3 ~/.hermes/profiles/sirvir/skills/turbofit/scripts/research-models.py`
 **Output**: `~/.hermes/profiles/sirvir/skills/turbofit/references/research-report.md`
 
-### 2. Auto-Benchmarking (Daily, 3:00 AM)
+### 2. Auto-Benchmarking (Weekly, Sunday 2:00 AM)
 
-Full benchmark sweep using the new pipeline:
+Full benchmark sweep — local + API + backends:
 
-1. Run `python3 scripts/benchmark-pipeline.py --push --gpu 1 --ctx 131072`
-2. Script automatically: stops daemons, benchmarks each model, writes JSON, pushes to GitHub
-3. Results published to `SouthpawIN/turbofit/skills/turbofit/references/benchmark-results.json`
-4. All turbofit installs can pull with `serve bench pull`
-5. Compare against previous day's results (detect regressions from driver/backend updates)
+1. Run `serve bench darwin-28b-reason` — main model (all backends)
+2. Run `serve bench carnice` — aux model (all backends)
+3. Run benchmarks on any new models added during the week
+4. Run API model benchmarks (GLM 5.2, Qwen 3.7 MAX, DeepSeek V4 Pro/Flash, MiniMax M3, Kimi K2.6/K2.7, Mimo V2.5, etc.)
+5. Compare results against previous benchmarks (detect regressions)
+6. Update backend performance database
+7. Update API model competitive intelligence database
+8. Post weekly benchmark report to blog + Discord + GitHub
 
 **Scheduled for off-hours** to minimize fleet impact.
 
-### 3. Scaling Checks (Every 30 Seconds — Automated)
+### 3. Scaling Checks (Every 4 Hours)
 
-The **turbofit-scaling-watcher** systemd service runs continuously:
+VRAM + health + backend spot-check:
 
-1. Polls `nvidia-smi` every 30 seconds for free VRAM
-2. 4-tier ladder with automatic action:
-   - **Tier 0** (>=24GB free): Both local models running, Hermes on local
-   - **Tier 1** (<16GB free): Stop aux daemons (Carnice), main stays
-   - **Tier 2** (<8GB free): Stop main, switch Hermes config to API (GLM 5.2 via Nous)
-   - **Tier 3** (<4GB free): Critical - ensure everything local is stopped
-3. Hysteresis: recovery thresholds are 4GB higher than stop thresholds (prevents flapping)
-4. Auto-restores: API -> local -> aux when VRAM recovers
-5. User preferences in `~/.config/turbofit/preferences.yaml`
-6. No human intervention needed - this is the "conscious stream"
+1. Run `serve vram` — get live VRAM state
+2. If free VRAM < 14GB → consider downscale
+3. Run `serve downscale` — walk the Beefy-tier ladder conservatively
+4. Check that no sessions are active before killing a model
+5. Quick speed test on current backend (spot-check)
+6. Log state change to memory + consolidated log
+7. Notify Discord if a model swap occurred
 
 ### 4. Health Monitoring (Hourly)
 
