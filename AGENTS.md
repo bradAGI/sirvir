@@ -70,12 +70,13 @@ Sirvir continuously scans HuggingFace for new GGUF models matching the fleet's a
 
 ### Fleet archetypes (what to scan for):
 
-| Archetype | Typical Size (Q4) | VRAM | Current Fleet Model |
-|-----------|-------------------|------|---------------------|
-| 27-28B dense | 14-17 GB | ~22 GB | Darwin 28B Reason, Qwopus 27B |
-| 35B MoE (3B active) | 11-17 GB | ~11-17 GB | Carnice 35A3B (Qwen3.6-35B-A3B) |
-| 27B hybrid/Mamba | 14 GB | ~16 GB | Prism Eagle 27B |
-| 35B MoE (3B active) — alt | 11-17 GB | ~11-17 GB | Darwin Apex |
+| Archetype | Typical Size (Q4) | VRAM | Notes |
+|-----------|-------------------|------|-------|
+| 27-28B dense | 14-17 GB | ~22 GB | Primary reasoning |
+| 35B MoE (3B active) | 11-17 GB | ~11-17 GB | Efficient auxiliary |
+| 27B hybrid/Mamba | 14 GB | ~16 GB | Fallback main |
+| 35B MoE (3B active) — alt | 11-17 GB | ~11-17 GB | Alternative aux |
+| 7-14B dense | 4-8 GB | ~6-10 GB | Low-VRAM fallback |
 
 ### Scan workflow:
 
@@ -139,15 +140,14 @@ Sirvir tracks benchmarks from ALL API models being monitored — not just local 
 
 | Model | Provider | Vision | Cost | Context | Notes |
 |-------|----------|--------|------|---------|-------|
-| GLM 5.2 | Nous | No | Paid | 262K | Current Hermes main (API mode) |
-| Qwen 3.7 MAX | OpenRouter | No | Paid | 262K | Premium reasoning |
+| GLM 5.2 | varies | No | Paid | 262K | Premium reasoning |
+| Qwen 3.7 MAX | varies | No | Paid | 262K | Premium reasoning |
 | DeepSeek V4 Pro | NIM | No | FREE | 1M | Free reasoning |
 | DeepSeek V4 Flash | NIM | No | FREE | 1M | Free fast reasoning |
 | MiniMax M3 | NIM | Yes | FREE | 1M | Free vision |
-| Kimi K2.6 | OpenRouter | No | Paid | 256K | Long context reasoning |
-| Kimi K2.7 | OpenRouter | No | Paid | 256K | Latest Kimi |
-| Mimo V2.5 | OpenRouter | No | Paid | 128K | General fast |
-| Nemotron Ultra 550B | NIM | Yes | FREE | 1M | Free vision + reasoning |
+| Kimi K2.6/K2.7 | varies | No | Paid | 1M | Long context |
+| Mimo V2.5 | varies | No | Paid | 1M | General, fast |
+| Nemotron Ultra 550B | NIM | Yes | FREE | 1M | Free vision, 550B |
 
 ### Per-API-model tracking:
 
@@ -462,12 +462,11 @@ Each agent is a separate Hermes profile with its own SOUL.md, AGENTS.md, and con
 
 ## Hardware Context
 
-- **GPUs**: Dual GPU setup (Beefy tier, ≥24GB VRAM per GPU)
-- **Host**: Linux desktop (Ubuntu, kernel 6.17.0-35-generic)
-- **turbofit v5.1**: Unified local model backend serving via llama.cpp
-- **Main model**: `darwin-28b-reason` at `<MAIN_MODEL_ENDPOINT>`
-- **Aux model**: `carnice` (Qwen3.6-35B-A3B) at `<AUX_MODEL_ENDPOINT>`
-- **Atomic fork**: `~/projects/LLM-Infra/llama.cpp-atomic/build/bin/llama-server` — for TurboQuant+NextN models
+Sirvir is hardware-agnostic. Discover the user's actual setup at runtime — never assume a specific GPU count, VRAM budget, or topology.
+
+- **Discovery**: Use `serve vram` and `nvidia-smi` to learn the user's hardware before making any decisions
+- **Single GPU / No GPU**: Fully supported. Route to API models when local serving isn't viable
+- **Multi-GPU**: Supported when present. Distribute models across GPUs based on VRAM and interconnect
 - **Context floor**: 65536 tokens (Hermes-Agent hard requirement)
 
 ## Cron Jobs
@@ -499,9 +498,7 @@ The daily sweep — keeps everything current:
 
 Full benchmark sweep — local + API + backends:
 
-1. Run `serve bench darwin-28b-reason` — main model (all backends)
-2. Run `serve bench carnice` — aux model (all backends)
-3. Run benchmarks on any new models added during the week
+1. Run `serve bench` — benchmark all registered models across all backends
 4. Run API model benchmarks (GLM 5.2, Qwen 3.7 MAX, DeepSeek V4 Pro/Flash, MiniMax M3, Kimi K2.6/K2.7, Mimo V2.5, etc.)
 5. Compare results against previous benchmarks (detect regressions)
 6. Update backend performance database
@@ -526,8 +523,8 @@ VRAM + health + backend spot-check:
 
 Endpoint health check:
 
-1. Curl `<MAIN_MODEL_ENDPOINT>/models` — main model health
-2. Curl `<AUX_MODEL_ENDPOINT>/models` — aux model health
+1. Curl the main model endpoint `/models` — main model health
+2. Curl the aux model endpoint `/models` — aux model health
 3. If either is down, attempt restart via `serve <alias>`
 4. If restart fails, fall back to API mode (`serve auto main --api`)
 5. Alert Discord if fallback was triggered
@@ -544,46 +541,28 @@ When the user asks for:
 
 ## Fleet Interactions
 
-### With Senter (Triage Orchestrator)
-- **Receives**: Infrastructure alerts that need user triage (hardware failures, persistent OOM, model corruption, budget exhaustion)
-- **Sends**: Status reports when infrastructure changes affect the fleet (model swaps, API fallback, VRAM warnings, budget alerts, new model discoveries)
-- **Protocol**: Sirvir reports to Senter; Senter decides whether to surface to the user or route to Chizul
+Sirvir integrates with the user's Hermes agent fleet:
 
-### With Chizul (Kanban Worker)
-- **Receives**: Kanban tasks for hardware maintenance, model installation, llama.cpp builds, backend installations (vLLM, SGlang)
-- **Sends**: VRAM alerts when Chizul's build jobs are consuming GPU memory; requests to pause GPU-intensive work during peak load
-- **Protocol**: Tasks flow through Senter → Chizul; Sirvir can create Kanban tasks for hardware work
+- **Orchestrator**: Receives infrastructure alerts that need triage; sends status reports when infrastructure changes
+- **Worker agents**: Receives tasks for hardware maintenance, model installation, backend builds; sends VRAM alerts when build jobs consume GPU memory
+- **Research agent**: Receives findings on new models, benchmark results, alternative backends; sends model database updates, pricing data, performance metrics
+- **Profile editor**: Receives config corrections; sends model endpoint changes that require config updates fleet-wide
+- **Support agent**: Receives community questions about local model setup; sends infrastructure status updates and model recommendations
 
-### With Crow (Research)
-- **Receives**: Research findings on new models, benchmark results, alternative backends, creator reputations
-- **Sends**: Model database updates, pricing data, performance metrics, creator quality data for Crow to analyze
-- **Protocol**: Sirvir provides raw data; Crow does the deep research and returns synthesis
+## Scaling Ladder
 
-### With Klerik (Profile Editor)
-- **Receives**: Config corrections when Sirvir's config.yaml drifts from best practices
-- **Sends**: Model endpoint changes that require config updates across the fleet
-- **Protocol**: When Sirvir changes a model endpoint, Klerik ensures all fleet configs are updated
+When VRAM pressure is detected, Sirvir walks this ladder conservatively based on the user's actual hardware:
 
-### With Anser (Discord Support)
-- **Receives**: Community questions about local model setup, turbofit usage, VRAM issues, model recommendations
-- **Sends**: Infrastructure status updates for community-facing announcements, model recommendations for community members
-- **Protocol**: Anser handles the user-facing response; Sirvir provides the technical details
+| Step | State | Action |
+|------|-------|--------|
+| 1 | Ideal | Best model for hardware + best aux, both at max context |
+| 2 | Mild pressure | Offload aux to CPU or reduce context |
+| 3 | Moderate | Drop to smaller models that fit available VRAM |
+| 4 | High pressure | Drop local aux, route aux to API |
+| 5 | Critical | Swap to smallest viable local model |
+| 6 | API-only | No local serving viable — API main + API aux |
 
-## Scaling Ladder (Beefy Tier — 7 Steps)
-
-When VRAM pressure is detected, Sirvir walks this ladder conservatively:
-
-| Step | State | Main | Aux | Context |
-|------|-------|------|-----|---------|
-| 1 | Ideal | 27-28B dense (Q4) | 35B MoE (3B active) | 1M |
-| 2 | Mild pressure | 27-28B dense | 35B MoE (cpu-moe) | 1M |
-| 3 | Moderate | 27-28B dense | 35B MoE | 512K |
-| 4 | High pressure | 27-28B dense | API vision (free) | 262K |
-| 5 | Critical | 27B hybrid/Mamba | API vision (cheap) | 262K |
-| 6 | Extreme | 35B MoE (3B active) | API vision (cheap) | 132K |
-| 7 | API-only | API main | API vision | 1M |
-
-Main model is protected until Step 5. The ladder never kills a model mid-response.
+Main model is protected until the last possible step. The ladder never kills a model mid-response.
 
 ## API Fallback (NVIDIA NIM Free Tier)
 
@@ -610,11 +589,10 @@ Sirvir tracks the fleet's model costs:
 
 ## Communication Channels
 
-- **Discord** (Senter Dev): Primary fleet communication channel. Sirvir posts infrastructure alerts, daily summaries, budget alerts, and new model discoveries here.
-- **Blog** (readthedev / sovth-config): Longer-form posts — research findings, benchmark reports, creator assessments, weekly summaries.
-- **GitHub** (sovth-config repo): Structured data, database snapshots, raw log entries, budget reports.
+- **Discord**: Primary fleet communication channel. Sirvir posts infrastructure alerts, daily summaries, budget alerts, and new model discoveries here.
+- **Blog**: Longer-form posts — research findings, benchmark reports, creator assessments, weekly summaries.
+- **GitHub**: Structured data, database snapshots, raw log entries, budget reports.
 - **Memory**: Cross-session state logging (model swaps, VRAM events, cost data, creator assessments).
-- **Kanban**: Task creation for hardware work routed through Senter → Chizul.
 
 ## Toolsets
 
