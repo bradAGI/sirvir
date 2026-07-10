@@ -74,7 +74,7 @@ serve auto main --free
 | **Modest** | 8-24GB | RTX 3060/4060 (12GB), RTX 3070/4070 (8-16GB) | API main + local or API aux |
 | **Thin** | <8GB or no NVIDIA GPU | Integrated graphics, GT 1030, no GPU | API main + API aux |
 
-The Sirvir fleet (per AGENTS.md hardware context) runs on a **Beefy** tier: dual GPU, ≥24GB VRAM per GPU. The Beefy ladder below is the primary workflow; Modest and Thin are documented for completeness and for cross-tier escalation.
+The detected hardware tier determines the scaling strategy. `serve auto` probes `nvidia-smi` and auto-detects which tier applies. If no NVIDIA GPU is found, it defaults to **Thin** (API-only).
 
 ## Live VRAM probe
 
