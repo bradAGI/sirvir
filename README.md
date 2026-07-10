@@ -54,7 +54,16 @@ Sirvir is the **infrastructure owner** for your model fleet. He doesn't just ser
 
 ### Prerequisites
 
-Sirvir requires the [turbofit](https://github.com/SouthpawIN/turbofit) skill to be installed first — it's the core serving engine.
+Sirvir requires the [turbofit](https://github.com/SouthpawIN/turbofit) skill — it's the core serving engine. Installing Sirvir via `hermes profile install` includes turbofit automatically. For standalone turbofit use:
+
+```bash
+# Manual install (bypasses the Hermes skills security scanner — turbofit needs to launch servers)
+git clone https://github.com/SouthpawIN/turbofit /tmp/turbofit-install
+cp -r /tmp/turbofit-install/skills/turbofit ~/.hermes/skills/turbofit
+rm -rf /tmp/turbofit-install
+```
+
+### Install Sirvir
 
 ```bash
 # Installs the full Sirvir profile — includes turbofit + all sub-skills
