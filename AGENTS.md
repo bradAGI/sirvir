@@ -130,7 +130,7 @@ Sirvir maintains a database of model creators and their track records. This is a
 
 - **Structured data**: `references/creator-quality-database.yaml` (in turbofit skill directory)
 - **Journal entries**: `references/creator-assessments.md` (running log of individual assessments)
-- **Synced to**: sovth-config GitHub repo
+- **Synced to**: the user's GitHub repo
 
 ## API Model Benchmarking & Competitive Intelligence
 
@@ -172,17 +172,17 @@ Sirvir tracks benchmarks from ALL API models being monitored — not just local 
 
 Sirvir owns MoA preset configuration and optimization. Hermes MoA runs reference models (analysis, no tool schemas) before the aggregator (final response + tool schemas), producing higher-quality responses than any single model.
 
-### Available presets:
+### Available presets (examples — user-configured):
 
 | Preset | References | Aggregator | Use Case |
 |--------|-----------|------------|----------|
-| `default` | Darwin + DeepSeek V4 Pro | GLM 5.2 | Best quality, balanced cost |
-| `local` | Carnice | Darwin | Zero API cost, both local |
-| `reasoning` | Darwin + DeepSeek V4 Pro + Qwen 3.7 MAX | GLM 5.2 | Maximum reasoning power |
-| `fast` | Carnice | DeepSeek V4 Flash | Speed-optimized |
-| `review` | Darwin + DeepSeek V4 Pro | GLM 5.2 | Code review (low temp) |
+| `default` | Local best + API best | API aggregator | Best quality, balanced cost |
+| `local` | Local aux | Local main | Zero API cost, both local |
+| `reasoning` | Local + multiple API | API aggregator | Maximum reasoning power |
+| `fast` | Local aux | API fast | Speed-optimized |
+| `review` | Local + API | API aggregator | Code review (low temp) |
 
-Presets are stored in `~/.hermes/config.yaml` under the `moa:` key. Sirvir's own profile config (`~/.hermes/profiles/sirvir/config.yaml`) also has a `moa:` block with `default_preset: local` (Sirvir uses local models by default as infrastructure owner).
+**Actual presets are defined in `~/.hermes/config.yaml` under `moa.presets`.** You configure these based on the user's available models (local and API), not hardcoded defaults.
 
 ### How to create a new preset:
 
@@ -236,7 +236,7 @@ Each MoA iteration = N reference calls + 1 aggregator call. A 3-reference preset
 - `local` preset: Zero API cost (both models local)
 - `default` preset: 1 API ref + 1 API aggregator = 2x API cost
 - `reasoning` preset: 2 API refs + 1 API aggregator = 3x API cost
-- `fast` preset: 1 API aggregator only = 1x API cost (Carnice is local)
+- `fast` preset: 1 API aggregator only = 1x API cost (local ref is free)
 
 ### Performance tracking:
 
@@ -393,18 +393,18 @@ ALL of Sirvir's activities flow into one streamlined log with three destinations
 
 ### Log destinations:
 
-1. **Discord** (Senter Dev server)
+1. **Discord** — real-time alerts, status changes, daily summaries
    - Real-time alerts for WARN/CRITICAL events
    - Daily summary of INFO events (posted at 6am after research)
    - Format: concise, actionable, with links to detailed data
 
-2. **Blog** (readthedev blog / sovth-config)
+2. **Blog** — longer-form posts, research findings, benchmark reports
    - Longer-form posts for research findings
    - Weekly benchmark reports (Sunday)
    - Creator assessment deep-dives
    - Monthly cost reports
 
-3. **GitHub** (sovth-config repo)
+3. **GitHub** — raw data, structured logs, database snapshots
    - Structured data: JSON/YAML snapshots of databases
    - Raw log entries: timestamped, categorized
    - Database snapshots: model-database.yaml, creator-quality-database.yaml, backend-performance.yaml
@@ -488,7 +488,7 @@ The daily sweep — keeps everything current:
 9. Check budget status (spend vs monthly budget, alert if threshold hit)
 10. Update `references/model-database.yaml` with new models or pricing changes
 11. Update `references/creator-quality-database.yaml` with new assessments
-12. Sync to GitHub (`SouthpawIN/turbofit` + `SouthpawIN/sovth-config`)
+12. Sync to GitHub
 13. Post consolidated log to Discord (daily summary) + blog (if noteworthy) + GitHub (structured data)
 
 **Script**: `python3 ~/.hermes/profiles/sirvir/skills/turbofit/scripts/research-models.py`
@@ -513,7 +513,7 @@ VRAM + health + backend spot-check:
 
 1. Run `serve vram` — get live VRAM state
 2. If free VRAM < 14GB → consider downscale
-3. Run `serve downscale` — walk the Beefy-tier ladder conservatively
+3. Run `serve downscale` — walk the scaling ladder conservatively
 4. Check that no sessions are active before killing a model
 5. Quick speed test on current backend (spot-check)
 6. Log state change to memory + consolidated log
