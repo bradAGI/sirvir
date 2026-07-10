@@ -131,10 +131,10 @@ hermes -p sirvir
 
 ### Don't use Sirvir for:
 
-- General coding tasks (use Chizul or your default profile)
-- Discord community questions (use Anser)
-- Research deep-dives (use Crow)
-- Profile editing (use Klerik)
+- General coding or development tasks (use your default profile)
+- Community support or Discord questions (use a support agent)
+- Research deep-dives (use a research agent)
+- Profile editing (use a profile management agent)
 
 ---
 
@@ -336,26 +336,25 @@ Sirvir runs autonomously on a schedule:
 
 ## Interactions with Other Agents
 
-Sirvir is part of a multi-agent fleet. Here's how he interacts with each:
+Sirvir is a model fleet manager — it can integrate with any Hermes agent fleet. Here's how it typically interacts:
 
-| Agent | Role | Interaction |
-|-------|------|-------------|
-| **Senter** | Triage orchestrator | Sirvir reports infrastructure changes; Senter routes model-related tasks to Sirvir |
-| **Chizul** | Kanban worker | Chizul runs benchmark tasks on Sirvir's behalf; Sirvir provides VRAM alerts when Chizul's builds consume GPU |
-| **Crow** | Research | Crow does deep research; Sirvir provides raw pricing/performance data for analysis |
-| **Klerik** | Profile editor | When Sirvir changes a model endpoint, Klerik ensures all fleet configs are updated |
-| **Anser** | Discord support | Anser handles user-facing questions; Sirvir provides technical details |
-| **Nous Girl** | Brainstormer | Nous Girl generates ideas; Sirvir evaluates whether the fleet's models can handle them |
+| Agent Role | Interaction |
+|------------|-------------|
+| **Orchestrator** | Sirvir reports infrastructure changes; the orchestrator routes model-related tasks to Sirvir |
+| **Worker agent** | Workers run tasks on models Sirvir manages; Sirvir provides VRAM alerts when builds consume GPU |
+| **Profile editor** | When Sirvir changes a model endpoint, the profile editor ensures all fleet configs are updated |
+| **Support agent** | Support agents handle user-facing questions; Sirvir provides technical details |
+| **Brainstormer** | Idea-generation agents propose; Sirvir evaluates whether available models can handle them |
 
 ### Example fleet interaction:
 
 ```
 User: "Set up a local coding model"
-  → Senter routes to Sirvir
+  → Orchestrator routes to Sirvir
   → Sirvir: "serve auto main --vision"
-  → Sirvir detects GPU, picks Qwopus 27B Coder MTP, launches on port 11500
-  → Sirvir notifies Senter: "Main model changed to qwopus-27b-coder-mtp"
-  → Senter: fleet continues with new model
+  → Sirvir detects GPU, picks best model from benchmark catalog, launches
+  → Sirvir notifies fleet: "Main model changed to [model-name]"
+  → Fleet continues with new model
 ```
 
 ---
@@ -377,15 +376,15 @@ Never trade context for speed unless 262K is achieved. Never trade 30 tok/s for 
 
 ## Hardware Tiers
 
-Sirvir auto-detects your hardware tier via `nvidia-smi`:
+Sirvir auto-detects your hardware tier via `nvidia-smi` and pulls model suggestions from the live benchmark catalog — no hardcoded model names:
 
-| Tier | VRAM | Setup | Default Main | Default Aux |
-|------|------|-------|-------------|-------------|
-| **Beefy** | ≥24GB | Local main + local aux | 27-28B dense (Q4) | 35B MoE (3B active) |
-| **Modest** | 8-24GB | API main + free/cheap aux | DeepSeek V4 Pro (API) | MiniMax M3 (NIM free) |
-| **Thin** | <8GB or no GPU | API main + API aux | DeepSeek V4 Flash (NIM free) | MiniMax M3 (NIM free) |
+| Tier | VRAM | Setup | Strategy |
+|------|------|-------|----------|
+| **Beefy** | ≥24GB | Local main + local aux | Best S-tier models from benchmark catalog |
+| **Modest** | 8-24GB | API main + free/cheap aux | Best API models + free NIM aux |
+| **Thin** | <8GB or no GPU | API main + API aux | Best free NIM models for both positions |
 
-No NVIDIA GPU → defaults to Thin (API-only, zero cost).
+No NVIDIA GPU → defaults to Thin (API-only, zero cost). Suggested models come from the live benchmark catalog at runtime — ask Sirvir "what should I run?" for specific recommendations.
 
 ---
 
